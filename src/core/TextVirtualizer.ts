@@ -41,6 +41,7 @@ export class TextVirtualizer<T> {
     }
   }
 
+  //`listener` here is the callback which will run when the data has changed.
   public subscribe(listener: () => void) {
     this.listeners.add(listener);
     return () => {
@@ -48,6 +49,7 @@ export class TextVirtualizer<T> {
     };
   }
 
+  //calling the listeners (notifying them to re-render)
   private notify() {
     this.listeners.forEach((listener) => listener());
   }
