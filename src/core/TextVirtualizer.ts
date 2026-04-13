@@ -11,6 +11,7 @@ export interface VirtualizerConfig<T> {
   font: string;
   lineHeight: number;
   boxModel?: BoxModelConfig;
+  itemGap?: number;
 }
 
 export interface VirtualItem<T> {
@@ -24,6 +25,7 @@ export class TextVirtualizer<T> {
   private config: VirtualizerConfig<T>;
   private cache: VirtualCache;
   private listeners: Set<() => void> = new Set();
+  private resizeObserver: ResizeObserver | null = null;
 
   // The state that UI frameworks will care about
   public virtualItems: VirtualItem<T>[] = [];
@@ -38,6 +40,7 @@ export class TextVirtualizer<T> {
 
     if (this.config.scrollContainer) {
       this.attachScrollListener();
+      this.attachResizeObserver();
     }
   }
 
@@ -60,9 +63,11 @@ export class TextVirtualizer<T> {
     this.calculateVisibleItems();
   }
 
-  private measureNewItems() {
+  private measureNewItems(forcedWidth?: number) {
     if (!this.config.scrollContainer) return;
-    const containerWidth = this.config.scrollContainer.clientWidth;
+
+    const containerWidth =
+      forcedWidth ?? this.config.scrollContainer.clientWidth;
 
     this.config.items.forEach((item) => {
       const id = this.config.getId(item);
@@ -71,10 +76,10 @@ export class TextVirtualizer<T> {
       if (this.cache.get(id) === undefined) {
         const height = calculateItemHeight(
           text,
-          this.config.font,
+          this.extractedStyles.font,
           containerWidth,
-          this.config.lineHeight,
-          this.config.boxModel,
+          this.extractedStyles.lineHeight,
+          this.extractedStyles.boxModel,
         );
         this.cache.set(id, height);
       }
@@ -83,11 +88,12 @@ export class TextVirtualizer<T> {
     this.totalHeight = this.cache.getTotalHeight();
   }
 
-  private calculateVisibleItems() {
+  private calculateVisibleItems(forcedHeight?: number) {
     if (!this.config.scrollContainer) return;
 
     const scrollTop = this.config.scrollContainer.scrollTop;
-    const viewportHeight = this.config.scrollContainer.clientHeight;
+    const viewportHeight =
+      forcedHeight ?? this.config.scrollContainer.clientHeight;
 
     const { startIndex, endIndex } = findVisibleRange(
       scrollTop,
@@ -126,5 +132,54 @@ export class TextVirtualizer<T> {
 
   private onScroll() {
     this.calculateVisibleItems();
+  }
+
+  private attachResizeObserver() {
+    if (!this.config.scrollContainer) return;
+
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        //exact new pixel dimensions of the container
+        const newWidth = entry.contentRect.width;
+        const newHeight = entry.contentRect.height;
+
+        // extracting CSS styles the developer wrote in their stylesheet
+        this.extractDOMStyles(entry.target as HTMLElement);
+
+        // Because the width changed, text will wrap differently.
+        // We must clear the cache and recalculate
+        this.cache.clear();
+        this.measureNewItems(newWidth);
+        this.calculateVisibleItems(newHeight);
+      }
+    });
+
+    // Start watching the scroll container
+    this.resizeObserver.observe(this.config.scrollContainer);
+  }
+
+  private extractedStyles = {
+    font: "16px sans-serif",
+    lineHeight: 24,
+    boxModel: { paddingTop: 0, paddingBottom: 0, marginBottom: 0 },
+  };
+
+  private extractDOMStyles(element: HTMLElement) {
+    const styles = window.getComputedStyle(element);
+
+    const fontWeight = styles.fontWeight;
+    const fontSize = styles.fontSize;
+    const fontFamily = styles.fontFamily;
+    this.extractedStyles.font = `${fontWeight} ${fontSize} ${fontFamily}`;
+
+    let lh = parseFloat(styles.lineHeight);
+    if (isNaN(lh)) lh = parseFloat(fontSize) * 1.5;
+    this.extractedStyles.lineHeight = lh;
+
+    this.extractedStyles.boxModel = {
+      paddingTop: parseFloat(styles.paddingTop) || 0,
+      paddingBottom: parseFloat(styles.paddingBottom) || 0,
+      marginBottom: this.config.itemGap || 0, // Add margin if passed an 'itemGap' in config
+    };
   }
 }

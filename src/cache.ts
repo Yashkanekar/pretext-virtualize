@@ -28,4 +28,11 @@ export class VirtualCache {
   getTotalHeight(): number {
     return this.totalHeight;
   }
+
+  clear() {
+    this.heights = {};
+    this.totalHeight = 0;
+    this.itemIds = [];
+    this.itemOffsets = [];
+  }
 }
